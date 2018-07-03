@@ -1,0 +1,14 @@
+[package]
+name = "musig-nano"
+version = "0.1.0"
+authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
+publish = false
+
+[dependencies]
+curve25519-dalek = "0.17.0"
+blake2 = "0.7.1"
+rand = "0.5.0-pre.2"
+digest = "0.7.2"
+
+[dev-dependencies]
+ed25519-dalek = "0.6.2"
