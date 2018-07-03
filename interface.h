@@ -13,7 +13,7 @@
 
 /**
  * Aggregate public keys into a single public key.
- * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted.
+ * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted. Duplicates will also be internally removed.
  * \param count The amount of pubkeys supplied.
  * \param error_out If an error occurs, this will be set to the error code.
  * \param aggregated_pubkey_out The 32 byte output for the aggregated public key (compressed edwards y format).
