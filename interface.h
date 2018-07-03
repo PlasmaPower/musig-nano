@@ -27,7 +27,7 @@ typedef struct stage2 stage2;
 /**
  * Start a MuSig session.
  * \param private_key The private key of the participant.
- * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted.
+ * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted. It may optionally contain this participant's public key. Since duplicates are internally removed, having two participants in a MuSig session with the same key will cause the session not to work.
  * \param pubkeys_count The amount of pubkeys supplied.
  * \param error_out If an error occurs, this will be set to the error code and nullptr will be returned.
  * \param aggregated_pubkey_out The 32 byte output for the aggregated public key (compressed edwards y format).
