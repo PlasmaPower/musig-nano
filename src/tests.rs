@@ -194,3 +194,62 @@ fn incorrect_commit_reveal() {
     assert_eq!(err, PEER_ERROR);
     assert!(stage2.is_null());
 }
+
+#[test]
+fn commit_missing_participant() {
+    const PARTICIPANTS: usize = 5;
+    const MESSAGE: &[u8] = b"Hello world!";
+    let mut rng = OsRng::new().unwrap();
+    let mut skeys = [[0u8; 32]; PARTICIPANTS];
+    for skey in &mut skeys {
+        rng.fill(skey);
+    }
+    let pkeys: Vec<_> = skeys
+        .iter()
+        .map(|skey| {
+            PublicKey::from_secret::<Hasher>(&SecretKey::from_bytes(skey).unwrap()).to_bytes()
+        })
+        .collect();
+    let pkey_ptrs: Vec<_> = pkeys.iter().map(|x| x.as_ptr()).collect();
+    let mut buf = [0u8; 32];
+    let mut err = 0u8;
+    let stage0 = unsafe {
+        musig_stage0(
+            skeys[0].as_ptr(),
+            pkey_ptrs.as_ptr(),
+            pkey_ptrs.len(),
+            &mut err as *mut _,
+            ptr::null_mut(),
+            buf.as_mut_ptr(),
+        )
+    };
+    assert_eq!(err, 0);
+    let mut commitments = [[0u8; 32]];
+    rng.fill(&mut commitments[0]);
+    let commitment_ptrs: Vec<_> = commitments.iter().map(|x| x.as_ptr()).collect();
+    let stage1 = unsafe {
+        musig_stage1(
+            stage0,
+            commitment_ptrs.as_ptr(),
+            commitment_ptrs.len(),
+            &mut err as *mut _,
+            buf.as_mut_ptr(),
+        )
+    };
+    assert_eq!(err, 0);
+    let buf_ptr = vec![buf.as_ptr()];
+    let mut buf2 = [0u8; 32];
+    let stage2 = unsafe {
+        musig_stage2(
+            stage1,
+            MESSAGE.as_ptr(),
+            MESSAGE.len(),
+            buf_ptr.as_ptr(),
+            buf_ptr.len(),
+            &mut err as *mut _,
+            buf2.as_mut_ptr(),
+        )
+    };
+    assert_eq!(err, PEER_ERROR);
+    assert!(stage2.is_null());
+}
