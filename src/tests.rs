@@ -295,3 +295,11 @@ fn commit_missing_participant() {
     assert_eq!(err, PEER_ERROR);
     assert!(stage2.is_null());
 }
+
+#[test]
+fn test_catch_panic() {
+    let mut err = 0;
+    let ret = unsafe { crate::test_catch_panic(&mut err as _) };
+    assert_eq!(err, INTERNAL_ERROR);
+    assert_eq!(ret, 42);
+}

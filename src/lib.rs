@@ -55,6 +55,23 @@ pub const INTERNAL_ERROR: u8 = 1;
 pub const PARAMS_ERROR: u8 = 2;
 pub const PEER_ERROR: u8 = 3;
 
+macro_rules! catch_panic {
+    ($err_out:ident $(,$err_ret:expr)*; $code:block) => {{
+        let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || $code));
+        match res {
+            Ok(x) => x,
+            Err(e) => {
+                match e.downcast_ref::<&'static str>() {
+                    Some(s) => eprintln!("INTERNAL MUSIG-NANO ERROR: {}", s),
+                    None => eprintln!("UNKNOWN INTERNAL MUSIG-NANO ERROR!"),
+                }
+                *$err_out = INTERNAL_ERROR;
+                $($err_ret)*
+            }
+        }
+    }};
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn musig_aggregate_public_keys(
     pubkeys: *const *const u8,
@@ -62,54 +79,55 @@ pub unsafe extern "C" fn musig_aggregate_public_keys(
     error_out: *mut u8,
     aggregated_pubkey_out: *mut u8,
 ) {
-    // Sort the pubkeys and remove duplicates
-    let pubkeys: BTreeSet<[u8; 32]> = slice::from_raw_parts(pubkeys, count)
-        .iter()
-        .map(|&pointer| {
-            let mut bytes = [0u8; 32];
-            bytes.copy_from_slice(slice::from_raw_parts(pointer, 32));
-            bytes
-        })
-        .collect();
-    let pubkeys: Option<Vec<EdwardsPoint>> = pubkeys
-        .into_iter()
-        .map(|bytes| CompressedEdwardsY(bytes).decompress())
-        .collect();
-    let pubkeys = match pubkeys {
-        Some(x) => x,
-        None => {
-            *error_out = PEER_ERROR;
-            return;
+    catch_panic!(error_out; {
+        // Sort the pubkeys and remove duplicates
+        let pubkeys: BTreeSet<[u8; 32]> = slice::from_raw_parts(pubkeys, count)
+            .iter()
+            .map(|&pointer| {
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(slice::from_raw_parts(pointer, 32));
+                bytes
+            })
+            .collect();
+        let pubkeys: Option<Vec<EdwardsPoint>> = pubkeys
+            .into_iter()
+            .map(|bytes| CompressedEdwardsY(bytes).decompress())
+            .collect();
+        let pubkeys = match pubkeys {
+            Some(x) => x,
+            None => {
+                *error_out = PEER_ERROR;
+                return;
+            }
+        };
+        let mut l_hasher = crate::Hasher::new(64).expect("Hasher doesn't support a 64 byte output");
+        for pkey in &pubkeys {
+            l_hasher.input(pkey.compress().as_bytes());
         }
-    };
-    let mut l_hasher = crate::Hasher::new(64)
-        .expect("Hasher doesn't support a 64 byte output");
-    for pkey in &pubkeys {
-        l_hasher.input(pkey.compress().as_bytes());
-    }
-    let mut l_bytes = [0u8; 64];
-    l_hasher.variable_result(|b| l_bytes.copy_from_slice(b));
-    let l_value = Scalar::from_bytes_mod_order_wide(&l_bytes);
-    let aggregated_pubkey = pubkeys
-        .iter()
-        .map(|pkey| {
-            let a_value =
-                quick_hash_scalar!(b"agg", l_value.as_bytes(), pkey.compress().as_bytes());
-            pkey * a_value
-        })
-        .fold(None, |sum, new| match sum {
-            None => Some(new),
-            Some(sum) => Some(sum + new),
-        });
-    let aggregated_pubkey = match aggregated_pubkey {
-        Some(x) => x,
-        None => {
-            *error_out = PEER_ERROR;
-            return;
-        }
-    };
-    slice::from_raw_parts_mut(aggregated_pubkey_out, 32)
-        .copy_from_slice(aggregated_pubkey.compress().as_bytes());
+        let mut l_bytes = [0u8; 64];
+        l_hasher.variable_result(|b| l_bytes.copy_from_slice(b));
+        let l_value = Scalar::from_bytes_mod_order_wide(&l_bytes);
+        let aggregated_pubkey = pubkeys
+            .iter()
+            .map(|pkey| {
+                let a_value =
+                    quick_hash_scalar!(b"agg", l_value.as_bytes(), pkey.compress().as_bytes());
+                pkey * a_value
+            })
+            .fold(None, |sum, new| match sum {
+                None => Some(new),
+                Some(sum) => Some(sum + new),
+            });
+        let aggregated_pubkey = match aggregated_pubkey {
+            Some(x) => x,
+            None => {
+                *error_out = PEER_ERROR;
+                return;
+            }
+        };
+        slice::from_raw_parts_mut(aggregated_pubkey_out, 32)
+            .copy_from_slice(aggregated_pubkey.compress().as_bytes());
+    });
 }
 
 pub struct Stage0 {
@@ -127,6 +145,7 @@ pub unsafe extern "C" fn musig_stage0(
     aggregated_pubkey_out: *mut u8,
     publish_out: *mut u8,
 ) -> *mut Stage0 {
+    catch_panic!(error_out, ptr::null_mut(); {
     let our_sec_key = secret_bytes_to_scalar(slice::from_raw_parts(our_sec_key, 32));
     // Sort the pubkeys and remove duplicates
     let mut all_pub_keys: BTreeSet<[u8; 32]> =
@@ -154,8 +173,7 @@ pub unsafe extern "C" fn musig_stage0(
             return ptr::null_mut();
         }
     };
-    let mut l_hasher = crate::Hasher::new(64)
-        .expect("Hasher doesn't support a 64 byte output");
+    let mut l_hasher = crate::Hasher::new(64).expect("Hasher doesn't support a 64 byte output");
     for pkey in &all_pub_keys {
         l_hasher.input(pkey.compress().as_bytes());
     }
@@ -194,13 +212,13 @@ pub unsafe extern "C" fn musig_stage0(
     let mut our_t_hasher = Hasher::new(32).expect("Invalid blake2b length");
     our_t_hasher.input(b"com");
     our_t_hasher.input(our_rb.compress().as_bytes());
-    our_t_hasher
-        .variable_result(|b| slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(b));
+    our_t_hasher.variable_result(|b| slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(b));
     Box::into_raw(Box::new(Stage0 {
         our_new_sec_key,
         aggregated_pubkey,
         our_r,
     }))
+    })
 }
 
 pub struct Stage1 {
@@ -215,9 +233,10 @@ pub unsafe extern "C" fn musig_stage1(
     stage0: *mut Stage0,
     responses: *const *const u8,
     responses_count: usize,
-    _error_out: *mut u8,
+    error_out: *mut u8,
     publish_out: *mut u8,
 ) -> *mut Stage1 {
+    catch_panic!(error_out, ptr::null_mut(); {
     let stage0 = Box::from_raw(stage0);
     let mut t_values: HashSet<[u8; 32]> = slice::from_raw_parts(responses, responses_count)
         .iter()
@@ -233,8 +252,7 @@ pub unsafe extern "C" fn musig_stage1(
     let mut our_t_hasher = Hasher::new(32).expect("Invalid blake2b length");
     our_t_hasher.input(b"com");
     our_t_hasher.input(our_rb.compress().as_bytes());
-    our_t_hasher
-        .variable_result(|b| our_t.copy_from_slice(b));
+    our_t_hasher.variable_result(|b| our_t.copy_from_slice(b));
     t_values.insert(our_t);
     Box::into_raw(Box::new(Stage1 {
         our_new_sec_key: stage0.our_new_sec_key,
@@ -242,6 +260,7 @@ pub unsafe extern "C" fn musig_stage1(
         aggregated_pubkey: stage0.aggregated_pubkey,
         t_values,
     }))
+    })
 }
 
 pub struct Stage2 {
@@ -261,6 +280,7 @@ pub unsafe extern "C" fn musig_stage2(
     error_out: *mut u8,
     publish_out: *mut u8,
 ) -> *mut Stage2 {
+    catch_panic!(error_out, ptr::null_mut(); {
     let mut stage1 = Box::from_raw(stage1);
     let mut total_rb = None;
     let mut rb_values: HashSet<[u8; 32]> = slice::from_raw_parts(responses, responses_count)
@@ -320,6 +340,7 @@ pub unsafe extern "C" fn musig_stage2(
         c_value,
         aggregated_pubkey: stage1.aggregated_pubkey,
     }))
+    })
 }
 
 #[no_mangle]
@@ -330,6 +351,7 @@ pub unsafe extern "C" fn musig_stage3(
     error_out: *mut u8,
     signature_out: *mut u8,
 ) {
+    catch_panic!(error_out; {
     let stage2 = Box::from_raw(stage2);
     let mut s_parts: HashSet<[u8; 32]> = slice::from_raw_parts(responses, responses_count)
         .iter()
@@ -349,6 +371,7 @@ pub unsafe extern "C" fn musig_stage3(
     let signature_out = slice::from_raw_parts_mut(signature_out, 64);
     signature_out[..32].copy_from_slice(stage2.total_rb.compress().as_bytes());
     signature_out[32..].copy_from_slice(total_s.as_bytes());
+    })
 }
 
 #[no_mangle]
@@ -378,6 +401,7 @@ pub unsafe extern "C" fn musig_observe(
     error_out: *mut u8,
     signature_out: *mut u8,
 ) {
+    catch_panic!(error_out; {
     let mut aggregated_pubkey_bytes = [0u8; 32];
     aggregated_pubkey_bytes.copy_from_slice(slice::from_raw_parts(aggregated_pubkey, 32));
     let aggregated_pubkey = match CompressedEdwardsY(aggregated_pubkey_bytes).decompress() {
@@ -441,4 +465,13 @@ pub unsafe extern "C" fn musig_observe(
     let signature_out = slice::from_raw_parts_mut(signature_out, 64);
     signature_out[..32].copy_from_slice(total_rb.compress().as_bytes());
     signature_out[32..].copy_from_slice(total_s.as_bytes());
+    })
+}
+
+#[cfg(test)]
+#[no_mangle]
+pub(crate) unsafe extern "C" fn test_catch_panic(error_out: *mut u8) -> u16 {
+    catch_panic!(error_out, 42; {
+        panic!("test_catch_panic");
+    })
 }
