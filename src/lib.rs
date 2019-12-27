@@ -1,7 +1,5 @@
-extern crate blake2;
-extern crate curve25519_dalek;
-extern crate digest;
-extern crate rand;
+// Documentation can be found in `../interface.h`
+#![allow(clippy::missing_safety_doc)]
 
 #[cfg(test)]
 mod tests;
@@ -9,51 +7,44 @@ mod tests;
 use curve25519_dalek::constants::ED25519_BASEPOINT_TABLE;
 use curve25519_dalek::edwards::{CompressedEdwardsY, EdwardsPoint};
 use curve25519_dalek::scalar::Scalar;
-use digest::{Digest, VariableOutput};
-use rand::OsRng;
+use digest::{Input, VariableOutput};
+use rand::rngs::OsRng;
+use std::collections::{BTreeSet, HashSet};
 use std::ptr;
 use std::slice;
-use std::collections::{BTreeSet, HashSet};
 
-pub type Hasher = blake2::Blake2b;
-
-#[macro_export]
-macro_rules! _quick_hash_internal {
-    ($hasher:expr, $result:path) => {
-        $result($hasher)
-    };
-    ($hasher:expr, $result:path, $first:expr $(, $item:expr)*) => {
-        {
-            ::digest::Digest::input(&mut $hasher, $first as &[u8]);
-            _quick_hash_internal!($hasher, $result $(, $item)*)
-        }
-    };
-}
+type Hasher = blake2::VarBlake2b;
 
 #[macro_export]
 macro_rules! quick_hash {
-    ($($a:expr $(,)*)+) => {
-        {
-            let mut hasher = ::Hasher::default();
-            _quick_hash_internal!(hasher, ::digest::FixedOutput::fixed_result $(, $a)*)
-        }
-    };
+    (__internal $hasher:expr) => {{
+        let mut out = [0u8; 64];
+        $hasher.variable_result(|b| out.copy_from_slice(b));
+        out
+    }};
+    (__internal $hasher:expr, $first:expr $(, $item:expr)*) => {{
+        ::digest::Input::input(&mut $hasher, $first as &[u8]);
+        quick_hash!(__internal $hasher $(, $item)*)
+    }};
+    ($($item:expr $(,)*)*) => {{
+        let mut hasher = crate::Hasher::new(64)
+            .expect("Hasher doesn't support a 64 byte output");
+        quick_hash!(__internal hasher $(, $item)*)
+    }};
 }
 
 #[macro_export]
 macro_rules! quick_hash_scalar {
-    ($($a:expr $(,)*)+) => {
-        {
-            let mut hasher = ::Hasher::default();
-            _quick_hash_internal!(hasher, ::curve25519_dalek::scalar::Scalar::from_hash $(, $a)*)
-        }
-    };
+    ($($item:expr $(,)*)*) => {{
+        let bytes = quick_hash!($($item,)*);
+        ::curve25519_dalek::scalar::Scalar::from_bytes_mod_order_wide(&bytes)
+    }};
 }
 
 fn secret_bytes_to_scalar(secret: &[u8]) -> Scalar {
     assert_eq!(secret.len(), 32);
     let mut digest = [0u8; 32];
-    digest.copy_from_slice(&quick_hash!(secret).as_slice()[..32]);
+    digest.copy_from_slice(&quick_hash!(secret)[..32]);
     digest[0] &= 248;
     digest[31] &= 127;
     digest[31] |= 64;
@@ -82,9 +73,7 @@ pub unsafe extern "C" fn musig_aggregate_public_keys(
         .collect();
     let pubkeys: Option<Vec<EdwardsPoint>> = pubkeys
         .into_iter()
-        .map(|bytes| {
-            CompressedEdwardsY(bytes).decompress()
-        })
+        .map(|bytes| CompressedEdwardsY(bytes).decompress())
         .collect();
     let pubkeys = match pubkeys {
         Some(x) => x,
@@ -93,21 +82,24 @@ pub unsafe extern "C" fn musig_aggregate_public_keys(
             return;
         }
     };
-    let mut l_hasher = Hasher::default();
+    let mut l_hasher = crate::Hasher::new(64)
+        .expect("Hasher doesn't support a 64 byte output");
     for pkey in &pubkeys {
         l_hasher.input(pkey.compress().as_bytes());
     }
-    let l_value = Scalar::from_hash(l_hasher);
+    let mut l_bytes = [0u8; 64];
+    l_hasher.variable_result(|b| l_bytes.copy_from_slice(b));
+    let l_value = Scalar::from_bytes_mod_order_wide(&l_bytes);
     let aggregated_pubkey = pubkeys
         .iter()
         .map(|pkey| {
             let a_value =
                 quick_hash_scalar!(b"agg", l_value.as_bytes(), pkey.compress().as_bytes());
-            pkey * &a_value
+            pkey * a_value
         })
         .fold(None, |sum, new| match sum {
             None => Some(new),
-            Some(sum) => Some(&sum + &new),
+            Some(sum) => Some(sum + new),
         });
     let aggregated_pubkey = match aggregated_pubkey {
         Some(x) => x,
@@ -137,20 +129,23 @@ pub unsafe extern "C" fn musig_stage0(
 ) -> *mut Stage0 {
     let our_sec_key = secret_bytes_to_scalar(slice::from_raw_parts(our_sec_key, 32));
     // Sort the pubkeys and remove duplicates
-    let mut all_pub_keys: BTreeSet<[u8; 32]> = slice::from_raw_parts(all_pub_keys, all_pub_keys_count)
-        .iter()
-        .map(|&pointer| {
-            let mut bytes = [0u8; 32];
-            bytes.copy_from_slice(slice::from_raw_parts(pointer, 32));
-            bytes
-        })
-        .collect();
-    all_pub_keys.insert((&our_sec_key * &ED25519_BASEPOINT_TABLE).compress().to_bytes());
+    let mut all_pub_keys: BTreeSet<[u8; 32]> =
+        slice::from_raw_parts(all_pub_keys, all_pub_keys_count)
+            .iter()
+            .map(|&pointer| {
+                let mut bytes = [0u8; 32];
+                bytes.copy_from_slice(slice::from_raw_parts(pointer, 32));
+                bytes
+            })
+            .collect();
+    all_pub_keys.insert(
+        (&our_sec_key * &ED25519_BASEPOINT_TABLE)
+            .compress()
+            .to_bytes(),
+    );
     let all_pub_keys: Option<Vec<EdwardsPoint>> = all_pub_keys
         .into_iter()
-        .map(|bytes| {
-            CompressedEdwardsY(bytes).decompress()
-        })
+        .map(|bytes| CompressedEdwardsY(bytes).decompress())
         .collect();
     let all_pub_keys = match all_pub_keys {
         Some(x) => x,
@@ -159,11 +154,14 @@ pub unsafe extern "C" fn musig_stage0(
             return ptr::null_mut();
         }
     };
-    let mut l_hasher = Hasher::default();
+    let mut l_hasher = crate::Hasher::new(64)
+        .expect("Hasher doesn't support a 64 byte output");
     for pkey in &all_pub_keys {
         l_hasher.input(pkey.compress().as_bytes());
     }
-    let l_value = Scalar::from_hash(l_hasher);
+    let mut l_bytes = [0u8; 64];
+    l_hasher.variable_result(|b| l_bytes.copy_from_slice(b));
+    let l_value = Scalar::from_bytes_mod_order_wide(&l_bytes);
     let our_pub_key = &our_sec_key * &ED25519_BASEPOINT_TABLE;
     let mut our_new_sec_key = None;
     let aggregated_pubkey = all_pub_keys
@@ -172,13 +170,13 @@ pub unsafe extern "C" fn musig_stage0(
             let a_value =
                 quick_hash_scalar!(b"agg", l_value.as_bytes(), pkey.compress().as_bytes());
             if pkey == &our_pub_key {
-                our_new_sec_key = Some(&our_sec_key * &a_value);
+                our_new_sec_key = Some(our_sec_key * a_value);
             }
-            pkey * &a_value
+            pkey * a_value
         })
         .fold(None, |sum, new| match sum {
             None => Some(new),
-            Some(sum) => Some(&sum + &new),
+            Some(sum) => Some(sum + new),
         });
     let (our_new_sec_key, aggregated_pubkey) = match (our_new_sec_key, aggregated_pubkey) {
         (Some(x), Some(y)) => (x, y),
@@ -191,21 +189,13 @@ pub unsafe extern "C" fn musig_stage0(
         slice::from_raw_parts_mut(aggregated_pubkey_out, 32)
             .copy_from_slice(aggregated_pubkey.compress().as_bytes());
     }
-    let mut rng = match OsRng::new() {
-        Ok(x) => x,
-        Err(_) => {
-            *error_out = INTERNAL_ERROR;
-            return ptr::null_mut();
-        }
-    };
-    let our_r = Scalar::random(&mut rng);
+    let our_r = Scalar::random(&mut OsRng);
     let our_rb = &our_r * &ED25519_BASEPOINT_TABLE;
-    let mut our_t_hasher = <Hasher as VariableOutput>::new(32).expect("Invalid blake2b length");
+    let mut our_t_hasher = Hasher::new(32).expect("Invalid blake2b length");
     our_t_hasher.input(b"com");
     our_t_hasher.input(our_rb.compress().as_bytes());
     our_t_hasher
-        .variable_result(slice::from_raw_parts_mut(publish_out, 32))
-        .expect("Incorrect blake2b output length");
+        .variable_result(|b| slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(b));
     Box::into_raw(Box::new(Stage0 {
         our_new_sec_key,
         aggregated_pubkey,
@@ -240,12 +230,11 @@ pub unsafe extern "C" fn musig_stage1(
     let our_rb = &stage0.our_r * &ED25519_BASEPOINT_TABLE;
     slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(our_rb.compress().as_bytes());
     let mut our_t = [0u8; 32];
-    let mut our_t_hasher = <Hasher as VariableOutput>::new(32).expect("Invalid blake2b length");
+    let mut our_t_hasher = Hasher::new(32).expect("Invalid blake2b length");
     our_t_hasher.input(b"com");
     our_t_hasher.input(our_rb.compress().as_bytes());
     our_t_hasher
-        .variable_result(&mut our_t)
-        .expect("Incorrect blake2b output length");
+        .variable_result(|b| our_t.copy_from_slice(b));
     t_values.insert(our_t);
     Box::into_raw(Box::new(Stage1 {
         our_new_sec_key: stage0.our_new_sec_key,
@@ -282,15 +271,17 @@ pub unsafe extern "C" fn musig_stage2(
             bytes
         })
         .collect();
-    rb_values.insert((&stage1.our_r * &ED25519_BASEPOINT_TABLE).compress().to_bytes());
+    rb_values.insert(
+        (&stage1.our_r * &ED25519_BASEPOINT_TABLE)
+            .compress()
+            .to_bytes(),
+    );
     for rb_bytes in rb_values {
         let mut expected_t = [0u8; 32];
-        let mut t_hasher = <Hasher as VariableOutput>::new(32).expect("Invalid blake2b length");
+        let mut t_hasher = Hasher::new(32).expect("Invalid blake2b length");
         t_hasher.input(b"com");
         t_hasher.input(&rb_bytes);
-        t_hasher
-            .variable_result(&mut expected_t)
-            .expect("Incorrect blake2b output length");
+        t_hasher.variable_result(|b| expected_t.copy_from_slice(b));
         if !stage1.t_values.remove(&expected_t) {
             *error_out = PEER_ERROR;
             return ptr::null_mut();
@@ -321,7 +312,7 @@ pub unsafe extern "C" fn musig_stage2(
         stage1.aggregated_pubkey.compress().as_bytes(),
         slice::from_raw_parts(message, message_len)
     );
-    let our_s_part = &stage1.our_r + (&c_value * &stage1.our_new_sec_key);
+    let our_s_part = stage1.our_r + (c_value * stage1.our_new_sec_key);
     slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(our_s_part.as_bytes());
     Box::into_raw(Box::new(Stage2 {
         our_s_part,
@@ -350,7 +341,7 @@ pub unsafe extern "C" fn musig_stage3(
         .collect();
     s_parts.insert(stage2.our_s_part.to_bytes());
     let total_s = s_parts.into_iter().map(Scalar::from_bytes_mod_order).sum();
-    let expected_sb = &stage2.total_rb + &(&stage2.c_value * &stage2.aggregated_pubkey);
+    let expected_sb = stage2.total_rb + (stage2.c_value * stage2.aggregated_pubkey);
     if &total_s * &ED25519_BASEPOINT_TABLE != expected_sb {
         *error_out = PEER_ERROR;
         return;
@@ -435,14 +426,14 @@ pub unsafe extern "C" fn musig_observe(
         })
         .collect::<HashSet<_>>() // remove duplicates
         .into_iter()
-        .map(|b| Scalar::from_bytes_mod_order(b))
+        .map(Scalar::from_bytes_mod_order)
         .sum();
     let c_value = quick_hash_scalar!(
         total_rb.compress().as_bytes(),
         &aggregated_pubkey_bytes,
         message,
     );
-    let expected_sb = &total_rb + &(&c_value * &aggregated_pubkey);
+    let expected_sb = total_rb + (c_value * aggregated_pubkey);
     if &total_s * &ED25519_BASEPOINT_TABLE != expected_sb {
         *error_out = PEER_ERROR;
         return;

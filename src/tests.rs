@@ -1,14 +1,50 @@
-extern crate ed25519_dalek;
+use crate::*;
+use digest::{generic_array, Input, VariableOutput};
+use ed25519_dalek::{PublicKey, SecretKey, Signature};
+use rand::prelude::*;
 
-use self::ed25519_dalek::{PublicKey, SecretKey, Signature};
-use rand::{OsRng, Rng};
-use *;
+/// A fixed size hasher for ed25519_dalek
+#[derive(Clone)]
+struct Blake2b512(blake2::VarBlake2b);
+
+impl Default for Blake2b512 {
+    fn default() -> Blake2b512 {
+        Blake2b512(
+            blake2::VarBlake2b::new(512 / 8).expect("Blake2b doesn't support 512 bit output"),
+        )
+    }
+}
+
+impl Input for Blake2b512 {
+    fn input<B: std::convert::AsRef<[u8]>>(&mut self, data: B) {
+        self.0.input(data)
+    }
+}
+
+impl digest::FixedOutput for Blake2b512 {
+    type OutputSize = generic_array::typenum::consts::U64;
+
+    fn fixed_result(self) -> generic_array::GenericArray<u8, Self::OutputSize> {
+        let mut out = generic_array::GenericArray::default();
+        self.0
+            .variable_result(|b| out.as_mut_slice().copy_from_slice(b));
+        out
+    }
+}
+
+impl digest::Reset for Blake2b512 {
+    fn reset(&mut self) {
+        self.0.reset();
+    }
+}
+
+type Hasher = Blake2b512;
 
 #[test]
 fn basic_test() {
     const PARTICIPANTS: usize = 5;
     const MESSAGE: &[u8] = b"Hello world!";
-    let mut rng = OsRng::new().unwrap();
+    let mut rng = OsRng;
     let mut skeys = [[0u8; 32]; PARTICIPANTS];
     for skey in &mut skeys {
         rng.fill(skey);
@@ -39,7 +75,7 @@ fn basic_test() {
     let mut publish0s = [[0u8; 32]; PARTICIPANTS];
     let mut stage0s = Vec::new();
     for (i, skey) in skeys.iter().enumerate() {
-        rng.shuffle(&mut pkey_ptrs);
+        pkey_ptrs.shuffle(&mut rng);
         stage0s.push(unsafe {
             musig_stage0(
                 skey.as_ptr(),
@@ -57,8 +93,8 @@ fn basic_test() {
     let mut publish1s = [[0u8; 32]; PARTICIPANTS];
     let mut stage1s = Vec::new();
     for (i, stage0) in stage0s.into_iter().enumerate() {
-        rng.shuffle(&mut publish0_ptrs);
-        let rand_publish = *rng.choose(&publish0_ptrs).unwrap();
+        publish0_ptrs.shuffle(&mut rng);
+        let rand_publish = *publish0_ptrs.choose(&mut rng).unwrap();
         publish0_ptrs.push(rand_publish);
         stage1s.push(unsafe {
             musig_stage1(
@@ -75,8 +111,8 @@ fn basic_test() {
     let mut publish2s = [[0u8; 32]; PARTICIPANTS];
     let mut stage2s = Vec::new();
     for (i, stage1) in stage1s.into_iter().enumerate() {
-        rng.shuffle(&mut publish1_ptrs);
-        let rand_publish = *rng.choose(&publish1_ptrs).unwrap();
+        publish1_ptrs.shuffle(&mut rng);
+        let rand_publish = *publish1_ptrs.choose(&mut rng).unwrap();
         publish1_ptrs.push(rand_publish);
         stage2s.push(unsafe {
             musig_stage2(
@@ -95,8 +131,8 @@ fn basic_test() {
     let agg_pkey = PublicKey::from_bytes(&agg_pkey).unwrap();
     let mut signature = [0u8; 64];
     for stage2 in stage2s {
-        rng.shuffle(&mut publish2_ptrs);
-        let rand_publish = *rng.choose(&publish2_ptrs).unwrap();
+        publish2_ptrs.shuffle(&mut rng);
+        let rand_publish = *publish2_ptrs.choose(&mut rng).unwrap();
         publish2_ptrs.push(rand_publish);
         unsafe {
             musig_stage3(
@@ -108,10 +144,12 @@ fn basic_test() {
             );
         }
         assert_eq!(err, 0);
-        assert!(agg_pkey.verify::<Hasher>(
-            MESSAGE,
-            &Signature::from_bytes(&signature as &[u8]).unwrap()
-        ));
+        assert!(agg_pkey
+            .verify::<Hasher>(
+                MESSAGE,
+                &Signature::from_bytes(&signature as &[u8]).unwrap()
+            )
+            .is_ok());
         signature = [0u8; 64];
     }
     let agg_pkey_bytes = agg_pkey.as_bytes();
@@ -129,17 +167,19 @@ fn basic_test() {
         );
     }
     assert_eq!(err, 0);
-    assert!(agg_pkey.verify::<Hasher>(
-        MESSAGE,
-        &Signature::from_bytes(&signature as &[u8]).unwrap()
-    ));
+    assert!(agg_pkey
+        .verify::<Hasher>(
+            MESSAGE,
+            &Signature::from_bytes(&signature as &[u8]).unwrap()
+        )
+        .is_ok());
 }
 
 #[test]
 fn incorrect_commit_reveal() {
     const PARTICIPANTS: usize = 5;
     const MESSAGE: &[u8] = b"Hello world!";
-    let mut rng = OsRng::new().unwrap();
+    let mut rng = OsRng;
     let mut skeys = [[0u8; 32]; PARTICIPANTS];
     for skey in &mut skeys {
         rng.fill(skey);
@@ -178,7 +218,9 @@ fn incorrect_commit_reveal() {
     };
     assert_eq!(err, 0);
     // Random but a valid edwards point
-    let reveal = (&Scalar::from_bytes_mod_order(commitments[0]) * &ED25519_BASEPOINT_TABLE).compress().to_bytes();
+    let reveal = (&Scalar::from_bytes_mod_order(commitments[0]) * &ED25519_BASEPOINT_TABLE)
+        .compress()
+        .to_bytes();
     let reveal_ptrs: Vec<_> = vec![reveal.as_ptr()];
     let stage2 = unsafe {
         musig_stage2(
@@ -199,7 +241,7 @@ fn incorrect_commit_reveal() {
 fn commit_missing_participant() {
     const PARTICIPANTS: usize = 5;
     const MESSAGE: &[u8] = b"Hello world!";
-    let mut rng = OsRng::new().unwrap();
+    let mut rng = OsRng;
     let mut skeys = [[0u8; 32]; PARTICIPANTS];
     for skey in &mut skeys {
         rng.fill(skey);
