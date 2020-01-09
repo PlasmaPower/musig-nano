@@ -5,6 +5,9 @@ edition = "2018"
 authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
 publish = false
 
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
 [dependencies]
 curve25519-dalek = "2.0.0"
 blake2 = "0.8.1"
