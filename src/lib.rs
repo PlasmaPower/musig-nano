@@ -104,14 +104,13 @@ pub unsafe extern "C" fn musig_aggregate_public_keys(
     for pkey in &pubkeys {
         l_hasher.input(pkey.compress().as_bytes());
     }
-    let mut l_bytes = [0u8; 64];
-    l_hasher.variable_result(|b| l_bytes.copy_from_slice(b));
-    let l_value = Scalar::from_bytes_mod_order_wide(&l_bytes);
+    let mut l_value = [0u8; 64];
+    l_hasher.variable_result(|b| l_value.copy_from_slice(b));
     let aggregated_pubkey = pubkeys
         .iter()
         .map(|pkey| {
             let a_value =
-                quick_hash_scalar!(b"agg", l_value.as_bytes(), pkey.compress().as_bytes());
+                quick_hash_scalar!(b"agg", &l_value, pkey.compress().as_bytes());
             pkey * a_value
         })
         .fold(None, |sum, new| match sum {
