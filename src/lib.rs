@@ -56,6 +56,9 @@ pub const INTERNAL_ERROR: u8 = 1;
 pub const PARAMS_ERROR: u8 = 2;
 pub const PEER_ERROR: u8 = 3;
 
+// TODO: test this flag
+pub const FLAG_SCALAR_KEY: u32 = 1 << 0;
+
 macro_rules! catch_panic {
     ($err_out:ident $(,$err_ret:expr)*; $code:block) => {{
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || $code));
@@ -141,12 +144,20 @@ pub unsafe extern "C" fn musig_stage0(
     our_sec_key: *const u8,
     all_pub_keys: *const *const u8,
     all_pub_keys_count: usize,
+    flags: u32,
     error_out: *mut u8,
     aggregated_pubkey_out: *mut u8,
     publish_out: *mut u8,
 ) -> *mut Stage0 {
     catch_panic!(error_out, ptr::null_mut(); {
-    let our_sec_key = secret_bytes_to_scalar(slice::from_raw_parts(our_sec_key, 32));
+    let our_sec_key = slice::from_raw_parts(our_sec_key, 32);
+    let our_sec_key = if flags & FLAG_SCALAR_KEY != 0 {
+        let mut bytes = [0u8; 32];
+        bytes.copy_from_slice(&our_sec_key);
+        Scalar::from_bytes_mod_order(bytes)
+    } else {
+        secret_bytes_to_scalar(our_sec_key)
+    };
     // Sort the pubkeys and remove duplicates
     let mut all_pub_keys: BTreeSet<[u8; 32]> =
         slice::from_raw_parts(all_pub_keys, all_pub_keys_count)

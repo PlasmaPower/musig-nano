@@ -11,6 +11,9 @@
 /** This indicates a problem with a parameter from a peer, e.g. a public key was invalid. */
 #define MUSIG_PEER_ERROR 3
 
+/** Used to specify that the private key shouldn't be hashed, and should instead be interpreted as a scalar. */
+#define MUSIG_FLAG_SCALAR_KEY (1 << 0)
+
 /**
  * Aggregate public keys into a single public key.
  * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted. Duplicates will also be internally removed.
@@ -29,12 +32,13 @@ typedef struct stage2 stage2;
  * \param private_key The private key of the participant.
  * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted. It may optionally contain this participant's public key. Since duplicates are internally removed, having two participants in a MuSig session with the same key will cause the session not to work.
  * \param pubkeys_count The amount of pubkeys supplied.
+ * \param flags Documented above, flags can change behavior in various ways.
  * \param error_out If an error occurs, this will be set to the error code and nullptr will be returned.
  * \param aggregated_pubkey_out The 32 byte output for the aggregated public key (compressed edwards y format) or optionally null.
  * \param publish_out A 32 byte output that should be published to other participants (used in the next stage).
  * \returns A stage0 struct representing the state of the MuSig session.
  */
-stage0 * musig_stage0(uint8_t const * private_key, uint8_t const * const * pubkeys, size_t pubkeys_count, uint8_t * error_out, uint8_t * aggregated_pubkey_out, uint8_t * publish_out);
+stage0 * musig_stage0(uint8_t const * private_key, uint8_t const * const * pubkeys, size_t pubkeys_count, uint32_t flags, uint8_t * error_out, uint8_t * aggregated_pubkey_out, uint8_t * publish_out);
 /**
  * Progress a MuSig session from stage 0 to stage 1.
  * \param stage0 The previous state of the MuSig session. This frees the struct, so do *not* call this with the same struct multiple times or call musig_free_stage0 with the stage in addition to this function.
