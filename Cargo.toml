@@ -17,3 +17,6 @@ digest = "0.8.1"
 [dev-dependencies]
 # fixes a rand error due to thread_rng not being present
 ed25519-dalek = { version = "0.9.1", default-features = false, features = ["u64_backend"] }
+
+[features]
+wasm = []

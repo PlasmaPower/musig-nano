@@ -76,6 +76,28 @@ macro_rules! catch_panic {
     }};
 }
 
+#[cfg(feature = "wasm")]
+#[no_mangle]
+pub unsafe extern "C" fn malloc(size: usize) -> *mut u8 {
+    let mut vec: Vec<u8> = Vec::with_capacity(size + mem::size_of::<usize>());
+    let true_size = vec.capacity();
+    let ptr = vec.as_mut_ptr();
+    *(ptr as *mut usize) = true_size;
+    mem::forget(vec);
+    ptr.offset(mem::size_of::<usize>() as isize)
+}
+
+#[cfg(feature = "wasm")]
+#[no_mangle]
+pub unsafe extern "C" fn free(ptr: *mut u8) {
+    if ptr.is_null() {
+        return;
+    }
+    let ptr = ptr.offset(-(mem::size_of::<usize>() as isize));
+    let size = *(ptr as *mut usize);
+    let _: Vec<u8> = Vec::from_raw_parts(ptr, 0, size);
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn musig_aggregate_public_keys(
     pubkeys: *const *const u8,
