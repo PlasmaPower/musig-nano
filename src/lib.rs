@@ -10,6 +10,7 @@ use curve25519_dalek::scalar::Scalar;
 use digest::{Input, VariableOutput};
 use rand::rngs::OsRng;
 use std::collections::{BTreeSet, HashSet};
+use std::mem;
 use std::ptr;
 use std::slice;
 
@@ -279,7 +280,7 @@ pub unsafe extern "C" fn musig_stage2(
     publish_out: *mut u8,
 ) -> *mut Stage2 {
     catch_panic!(error_out, ptr::null_mut(); {
-    let mut stage1 = Box::from_raw(stage1);
+    let stage1 = Box::from_raw(stage1);
     let mut total_rb = None;
     let mut rb_values: HashSet<[u8; 32]> = slice::from_raw_parts(responses, responses_count)
         .iter()
@@ -294,14 +295,16 @@ pub unsafe extern "C" fn musig_stage2(
             .compress()
             .to_bytes(),
     );
+    let mut t_values = stage1.t_values.clone();
     for rb_bytes in rb_values {
         let mut expected_t = [0u8; 32];
         let mut t_hasher = Hasher::new(32).expect("Invalid blake2b length");
         t_hasher.input(b"com");
         t_hasher.input(&rb_bytes);
         t_hasher.variable_result(|b| expected_t.copy_from_slice(b));
-        if !stage1.t_values.remove(&expected_t) {
+        if !t_values.remove(&expected_t) {
             *error_out = PEER_ERROR;
+            mem::forget(stage1);
             return ptr::null_mut();
         }
         if let Some(rb) = CompressedEdwardsY(rb_bytes).decompress() {
@@ -311,17 +314,20 @@ pub unsafe extern "C" fn musig_stage2(
             });
         } else {
             *error_out = PEER_ERROR;
+            mem::forget(stage1);
             return ptr::null_mut();
         }
     }
-    if !stage1.t_values.is_empty() {
+    if !t_values.is_empty() {
         *error_out = PEER_ERROR;
+        mem::forget(stage1);
         return ptr::null_mut();
     }
     let total_rb = match total_rb {
         Some(x) => x,
         None => {
             *error_out = PARAMS_ERROR;
+            mem::forget(stage1);
             return ptr::null_mut();
         }
     };
@@ -364,6 +370,7 @@ pub unsafe extern "C" fn musig_stage3(
     let expected_sb = stage2.total_rb + (stage2.c_value * stage2.aggregated_pubkey);
     if &total_s * &ED25519_BASEPOINT_TABLE != expected_sb {
         *error_out = PEER_ERROR;
+        mem::forget(stage2);
         return;
     }
     let signature_out = slice::from_raw_parts_mut(signature_out, 64);

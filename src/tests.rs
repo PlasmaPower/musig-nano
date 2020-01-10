@@ -235,6 +235,20 @@ fn incorrect_commit_reveal() {
     };
     assert_eq!(err, PEER_ERROR);
     assert!(stage2.is_null());
+    err = 0;
+    let stage2_again = unsafe {
+        musig_stage2(
+            stage1,
+            MESSAGE.as_ptr(),
+            MESSAGE.len(),
+            reveal_ptrs.as_ptr(),
+            reveal_ptrs.len(),
+            &mut err as *mut _,
+            buf.as_mut_ptr(),
+        )
+    };
+    assert_eq!(err, PEER_ERROR);
+    assert!(stage2_again.is_null());
 }
 
 #[test]
