@@ -320,3 +320,45 @@ fn test_catch_panic() {
     assert_eq!(err, INTERNAL_ERROR);
     assert_eq!(ret, 42);
 }
+
+#[test]
+fn test_scalar_key() {
+    let mut rng = OsRng;
+    let scalar = Scalar::random(&mut rng);
+    let scalar_bytes = scalar.to_bytes();
+    let pkey = &scalar * &ED25519_BASEPOINT_TABLE;
+    let pkey_bytes = pkey.compress().to_bytes();
+    let pkey_ptrs = [pkey_bytes.as_ptr()];
+    let mut agg_pkey = [0u8; 32];
+    let mut err = 0u8;
+    unsafe {
+        musig_aggregate_public_keys(
+            pkey_ptrs.as_ptr(),
+            pkey_ptrs.len(),
+            &mut err as *mut _,
+            agg_pkey.as_mut_ptr(),
+        );
+    }
+    assert_eq!(err, 0);
+    assert!(agg_pkey.iter().any(|&b| b != 0));
+    let mut agg_pkey2 = [0u8; 32];
+    let mut out = [0u8; 32];
+    let stage0 = unsafe {
+        musig_stage0(
+            scalar_bytes.as_ptr(),
+            ptr::null(),
+            0,
+            FLAG_SCALAR_KEY,
+            &mut err as *mut _,
+            agg_pkey2.as_mut_ptr(),
+            out.as_mut_ptr(),
+        )
+    };
+    assert_eq!(err, 0);
+    assert!(!stage0.is_null());
+    assert_eq!(agg_pkey2, agg_pkey);
+    assert!(out.iter().any(|&b| b != 0));
+    unsafe {
+        musig_free_stage0(stage0);
+    }
+}

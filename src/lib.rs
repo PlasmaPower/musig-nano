@@ -56,7 +56,7 @@ pub const INTERNAL_ERROR: u8 = 1;
 pub const PARAMS_ERROR: u8 = 2;
 pub const PEER_ERROR: u8 = 3;
 
-// TODO: test this flag
+#[allow(clippy::identity_op)]
 pub const FLAG_SCALAR_KEY: u32 = 1 << 0;
 
 macro_rules! catch_panic {
