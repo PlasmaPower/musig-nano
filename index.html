@@ -3,7 +3,7 @@
 
 <head>
     <title>Nano Multisignature Tool</title>
-    <!-- Compiled with wasm feature by rust 1.40.0 then stripped by wabt 1.0.12-1 -->
+    <!-- Compiled from commit 3712addc8d07338b6bc759f5a04225f2de6ca249 with wasm feature by rust 1.40.0 then stripped by wabt 1.0.12-1 -->
     <script type="data" id="wasmBase64">
 AGFzbQEAAAABmAEWYAF/AX5gAX8AYAJ/fwF/YAR/f39/AGACf38AYAN/f38AYAN/f38Bf2AEf39/fwF/YAV/f39/fwBgBH9+f38Bf2ACf38BfmABfwF/YAd/f39/f39/AX9gBX9/f39/AX9gCX9/f39/f39/fwBgAABgA39+fgBgA39/fgBgAAF/YAN+f38Bf2AGf39/
 f39/AX9gBX9+fn5+AAI1Ag13YXNpX3Vuc3RhYmxlCnJhbmRvbV9nZXQAAg13YXNpX3Vuc3RhYmxlCGZkX3dyaXRlAAcD0ALOAgUIBAMEBQkCAgoBAQELCwsBBQICAQUBAQEBAQEBBQsBAwwNDAgBAQEOAQUFBQQEAgEPBAIFBwUQEQQEBAUEBQUEBQQFBAQFBAQEBAUE
@@ -1926,6 +1926,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
             const privateKeyInput = document.getElementById("privateKeyInput");
             const protocolOut = document.getElementById("protocolOut");
             const protocolInTextBox = document.getElementById("protocolInTextBox");
+            const privateKeyIsScalar = document.getElementById("privateKeyIsScalar");
             let musigStagePtr, musigStageNum;
             advanceMusigButton.addEventListener("click", alertError(function () {
                 if (!musigStagePtr) {
@@ -1939,10 +1940,11 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
                     const outPtr = wasm.musig_malloc(65);
                     const outBuf = new Uint8Array(wasm.memory.buffer, outPtr, 65);
                     outBuf[0] = 0;
+                    const flags = privateKeyIsScalar.checked ? 1 : 0;
                     let aggPubKey;
                     try {
                         aggPubKey = aggregate((pubkeys, pubkeysLen) => {
-                            musigStagePtr = wasm.musig_stage0(privateKeyPtr, pubkeys, pubkeysLen, 0, outPtr, outPtr + 1, outPtr + 33);
+                            musigStagePtr = wasm.musig_stage0(privateKeyPtr, pubkeys, pubkeysLen, flags, outPtr, outPtr + 1, outPtr + 33);
                             musigStageNum = 0;
                         });
                     } catch (err) {
@@ -1971,6 +1973,7 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
                     }
                     privateKeyInput.disabled = true;
                     privateKeyInput.value = privateKeyInput.value.slice(0, 2) + "*".repeat(60) + privateKeyInput.value.slice(62);
+                    privateKeyIsScalar.disabled = true;
                     messageInput.readOnly = true;
                     addressesInput.readOnly = true;
                     aggregateButton.disabled = true;
@@ -2045,7 +2048,9 @@ AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
 
     <h2>Perform Multisignature</h2>
     <label for="privateKeyInput">Private Key:</label>
-    <input name="privateKeyInput" id="privateKeyInput" size="64" maxlength="64" autocomplete="off"><br>
+    <input name="privateKeyInput" id="privateKeyInput" size="64" maxlength="64" autocomplete="off">
+    <input name="privateKeyIsScalar" id="privateKeyIsScalar" type="checkbox">
+    <label for="privateKeyIsScalar">Private key is a raw/expanded scalar (unusual)</label><br>
     <label for="messageInput">Message to sign (in hexadecimal):</label>
     <input name="messageInput" id="messageInput" size="64"><br>
 
