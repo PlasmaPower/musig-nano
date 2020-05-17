@@ -258,11 +258,14 @@ pub struct Stage1 {
     aggregated_pubkey: EdwardsPoint,
     our_r: Scalar,
     t_values: HashSet<[u8; 32]>,
+    message: Vec<u8>,
 }
 
 #[no_mangle]
 pub unsafe extern "C" fn musig_stage1(
     stage0: *mut Stage0,
+    message: *const u8,
+    message_len: usize,
     responses: *const *const u8,
     responses_count: usize,
     error_out: *mut u8,
@@ -291,6 +294,7 @@ pub unsafe extern "C" fn musig_stage1(
         our_r: stage0.our_r,
         aggregated_pubkey: stage0.aggregated_pubkey,
         t_values,
+        message: slice::from_raw_parts(message, message_len).to_vec(),
     }))
     })
 }
@@ -305,8 +309,6 @@ pub struct Stage2 {
 #[no_mangle]
 pub unsafe extern "C" fn musig_stage2(
     stage1: *mut Stage1,
-    message: *const u8,
-    message_len: usize,
     responses: *const *const u8,
     responses_count: usize,
     error_out: *mut u8,
@@ -367,7 +369,7 @@ pub unsafe extern "C" fn musig_stage2(
     let c_value = quick_hash_scalar!(
         total_rb.compress().as_bytes(),
         stage1.aggregated_pubkey.compress().as_bytes(),
-        slice::from_raw_parts(message, message_len)
+        &stage1.message
     );
     let our_s_part = stage1.our_r + (c_value * stage1.our_new_sec_key);
     slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(our_s_part.as_bytes());

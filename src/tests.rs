@@ -100,6 +100,8 @@ fn basic_test() {
         stage1s.push(unsafe {
             musig_stage1(
                 stage0,
+                MESSAGE.as_ptr(),
+                MESSAGE.len(),
                 publish0_ptrs.as_ptr(),
                 publish0_ptrs.len(),
                 &mut err as *mut _,
@@ -118,8 +120,6 @@ fn basic_test() {
         stage2s.push(unsafe {
             musig_stage2(
                 stage1,
-                MESSAGE.as_ptr(),
-                MESSAGE.len(),
                 publish1_ptrs.as_ptr(),
                 publish1_ptrs.len(),
                 &mut err as *mut _,
@@ -212,6 +212,8 @@ fn incorrect_commit_reveal() {
     let stage1 = unsafe {
         musig_stage1(
             stage0,
+            MESSAGE.as_ptr(),
+            MESSAGE.len(),
             commitment_ptrs.as_ptr(),
             commitment_ptrs.len(),
             &mut err as *mut _,
@@ -227,8 +229,6 @@ fn incorrect_commit_reveal() {
     let stage2 = unsafe {
         musig_stage2(
             stage1,
-            MESSAGE.as_ptr(),
-            MESSAGE.len(),
             reveal_ptrs.as_ptr(),
             reveal_ptrs.len(),
             &mut err as *mut _,
@@ -241,8 +241,6 @@ fn incorrect_commit_reveal() {
     let stage2_again = unsafe {
         musig_stage2(
             stage1,
-            MESSAGE.as_ptr(),
-            MESSAGE.len(),
             reveal_ptrs.as_ptr(),
             reveal_ptrs.len(),
             &mut err as *mut _,
@@ -289,6 +287,8 @@ fn commit_missing_participant() {
     let stage1 = unsafe {
         musig_stage1(
             stage0,
+            MESSAGE.as_ptr(),
+            MESSAGE.len(),
             commitment_ptrs.as_ptr(),
             commitment_ptrs.len(),
             &mut err as *mut _,
@@ -301,8 +301,6 @@ fn commit_missing_participant() {
     let stage2 = unsafe {
         musig_stage2(
             stage1,
-            MESSAGE.as_ptr(),
-            MESSAGE.len(),
             buf_ptr.as_ptr(),
             buf_ptr.len(),
             &mut err as *mut _,

@@ -42,25 +42,25 @@ stage0 * musig_stage0(uint8_t const * private_key, uint8_t const * const * pubke
 /**
  * Progress a MuSig session from stage 0 to stage 1.
  * \param stage0 The previous state of the MuSig session. This frees the struct, so do *not* call this with the same struct multiple times or call musig_free_stage0 with the stage in addition to this function.
+ * \param message The message to sign. For Nano, this is a block hash.
+ * \param message_length The length of the message.
  * \param responses An array of pointers to 32 byte messages published in stage0. This may optionally include our own message and/or duplicates. It may be in any order.
  * \param responses_count The number of responses in the responses array.
  * \param error_out If an error occurs, this will be set to the error code and nullptr will be returned. If any error but MUSIG_INTERNAL_ERROR is returned, stage0 will remain intact.
  * \param publish_out A 32 byte output that should be published to other participants (used in the next stage).
  * \returns A stage1 struct representing the state of the MuSig session.
  */
-stage1 * musig_stage1(stage0 * stage0, uint8_t const * const * responses, size_t responses_count, uint8_t * error_out, uint8_t * publish_out);
+stage1 * musig_stage1(stage0 * stage0, uint8_t const * message, size_t message_length, uint8_t const * const * responses, size_t responses_count, uint8_t * error_out, uint8_t * publish_out);
 /**
  * Progress a MuSig session from stage 1 to stage 2.
  * \param stage1 The previous state of the MuSig session. This frees the struct, so do *not* call this with the same struct multiple times or call musig_free_stage1 with the stage in addition to this function.
- * \param message The message to sign. For Nano, this is a block hash.
- * \param message_length The length of the message.
  * \param responses An array of pointers to 32 byte messages published in stage1. This may optionally include our own message and/or duplicates. It may be in any order.
  * \param responses_count The number of responses in the responses array.
  * \param error_out If an error occurs, this will be set to the error code and nullptr will be returned. If any error but MUSIG_INTERNAL_ERROR is returned, stage1 will remain intact.
  * \param publish_out A 32 byte output that should be published to other participants (used in the next stage).
  * \returns A stage2 struct representing the state of the MuSig session.
  */
-stage2 * musig_stage2(stage1 * stage1, uint8_t const * message, size_t message_length, uint8_t const * const * responses, size_t responses_count, uint8_t * error_out, uint8_t * publish_out);
+stage2 * musig_stage2(stage1 * stage1, uint8_t const * const * responses, size_t responses_count, uint8_t * error_out, uint8_t * publish_out);
 /**
  * Finishes a musig session, producing the signature.
  * \param stage2 The previous state of the MuSig session. This frees the struct, so do *not* call this with the same struct multiple times or call musig_free_stage2 with the stage in addition to this function.
