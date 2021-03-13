@@ -156,22 +156,49 @@ pub unsafe extern "C" fn musig_aggregate_public_keys(
 }
 
 pub struct Stage0 {
-    our_new_sec_key: Scalar,
-    aggregated_pubkey: EdwardsPoint,
     our_r: Scalar,
 }
 
 #[no_mangle]
-pub unsafe extern "C" fn musig_stage0(
+pub unsafe extern "C" fn musig_stage0(error_out: *mut u8, publish_out: *mut u8) -> *mut Stage0 {
+    catch_panic!(error_out, ptr::null_mut(); {
+    let our_r = Scalar::random(&mut OsRng);
+    let our_rb = &our_r * &ED25519_BASEPOINT_TABLE;
+    let mut our_t_hasher = Hasher::new(32).expect("Invalid blake2b length");
+    our_t_hasher.input(b"com");
+    our_t_hasher.input(our_rb.compress().as_bytes());
+    our_t_hasher.variable_result(|b| slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(b));
+    Box::into_raw(Box::new(Stage0 {
+        our_r,
+    }))
+    })
+}
+
+pub struct Stage1 {
+    our_new_sec_key: Scalar,
+    aggregated_pubkey: EdwardsPoint,
+    our_r: Scalar,
+    t_values: HashSet<[u8; 32]>,
+    message: Vec<u8>,
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn musig_stage1(
+    stage0: *mut Stage0,
     our_sec_key: *const u8,
     all_pub_keys: *const *const u8,
     all_pub_keys_count: usize,
     flags: u32,
+    message: *const u8,
+    message_len: usize,
+    responses: *const *const u8,
+    responses_count: usize,
     error_out: *mut u8,
     aggregated_pubkey_out: *mut u8,
     publish_out: *mut u8,
-) -> *mut Stage0 {
+) -> *mut Stage1 {
     catch_panic!(error_out, ptr::null_mut(); {
+    let stage0 = Box::from_raw(stage0);
     let our_sec_key = slice::from_raw_parts(our_sec_key, 32);
     let our_sec_key = if flags & FLAG_SCALAR_KEY != 0 {
         let mut bytes = [0u8; 32];
@@ -239,40 +266,6 @@ pub unsafe extern "C" fn musig_stage0(
         slice::from_raw_parts_mut(aggregated_pubkey_out, 32)
             .copy_from_slice(aggregated_pubkey.compress().as_bytes());
     }
-    let our_r = Scalar::random(&mut OsRng);
-    let our_rb = &our_r * &ED25519_BASEPOINT_TABLE;
-    let mut our_t_hasher = Hasher::new(32).expect("Invalid blake2b length");
-    our_t_hasher.input(b"com");
-    our_t_hasher.input(our_rb.compress().as_bytes());
-    our_t_hasher.variable_result(|b| slice::from_raw_parts_mut(publish_out, 32).copy_from_slice(b));
-    Box::into_raw(Box::new(Stage0 {
-        our_new_sec_key,
-        aggregated_pubkey,
-        our_r,
-    }))
-    })
-}
-
-pub struct Stage1 {
-    our_new_sec_key: Scalar,
-    aggregated_pubkey: EdwardsPoint,
-    our_r: Scalar,
-    t_values: HashSet<[u8; 32]>,
-    message: Vec<u8>,
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn musig_stage1(
-    stage0: *mut Stage0,
-    message: *const u8,
-    message_len: usize,
-    responses: *const *const u8,
-    responses_count: usize,
-    error_out: *mut u8,
-    publish_out: *mut u8,
-) -> *mut Stage1 {
-    catch_panic!(error_out, ptr::null_mut(); {
-    let stage0 = Box::from_raw(stage0);
     let mut t_values: HashSet<[u8; 32]> = slice::from_raw_parts(responses, responses_count)
         .iter()
         .map(|&pointer| {
@@ -290,9 +283,9 @@ pub unsafe extern "C" fn musig_stage1(
     our_t_hasher.variable_result(|b| our_t.copy_from_slice(b));
     t_values.insert(our_t);
     Box::into_raw(Box::new(Stage1 {
-        our_new_sec_key: stage0.our_new_sec_key,
+        our_new_sec_key,
         our_r: stage0.our_r,
-        aggregated_pubkey: stage0.aggregated_pubkey,
+        aggregated_pubkey,
         t_values,
         message: slice::from_raw_parts(message, message_len).to_vec(),
     }))

@@ -71,44 +71,39 @@ fn basic_test() {
     for pkey in &pkeys {
         assert!(&agg_pkey != pkey);
     }
-    let mut agg_pkey2 = [0u8; 32];
     let mut publish0s = [[0u8; 32]; PARTICIPANTS];
     let mut stage0s = Vec::new();
-    for (i, skey) in skeys.iter().enumerate() {
+    for (i, _) in skeys.iter().enumerate() {
         pkey_ptrs.shuffle(&mut rng);
-        stage0s.push(unsafe {
-            musig_stage0(
-                skey.as_ptr(),
-                pkey_ptrs.as_ptr(),
-                pkey_ptrs.len(),
-                0,
-                &mut err as *mut _,
-                agg_pkey2.as_mut_ptr(),
-                publish0s[i].as_mut_ptr(),
-            )
-        });
+        stage0s.push(unsafe { musig_stage0(&mut err as *mut _, publish0s[i].as_mut_ptr()) });
         assert_eq!(err, 0);
-        assert_eq!(agg_pkey2, agg_pkey);
     }
     let mut publish0_ptrs: Vec<_> = publish0s.iter().map(|x| x.as_ptr()).collect();
     let mut publish1s = [[0u8; 32]; PARTICIPANTS];
+    let mut agg_pkey2 = [0u8; 32];
     let mut stage1s = Vec::new();
-    for (i, stage0) in stage0s.into_iter().enumerate() {
+    for (i, (skey, stage0)) in skeys.iter().zip(stage0s.into_iter()).enumerate() {
         publish0_ptrs.shuffle(&mut rng);
         let rand_publish = *publish0_ptrs.choose(&mut rng).unwrap();
         publish0_ptrs.push(rand_publish);
         stage1s.push(unsafe {
             musig_stage1(
                 stage0,
+                skey.as_ptr(),
+                pkey_ptrs.as_ptr(),
+                pkey_ptrs.len(),
+                0,
                 MESSAGE.as_ptr(),
                 MESSAGE.len(),
                 publish0_ptrs.as_ptr(),
                 publish0_ptrs.len(),
                 &mut err as *mut _,
+                agg_pkey2.as_mut_ptr(),
                 publish1s[i].as_mut_ptr(),
             )
         });
         assert_eq!(err, 0);
+        assert_eq!(agg_pkey2, agg_pkey);
     }
     let mut publish1_ptrs: Vec<_> = publish1s.iter().map(|x| x.as_ptr()).collect();
     let mut publish2s = [[0u8; 32]; PARTICIPANTS];
@@ -194,17 +189,7 @@ fn incorrect_commit_reveal() {
     let pkey_ptrs: Vec<_> = pkeys.iter().map(|x| x.as_ptr()).collect();
     let mut buf = [0u8; 32];
     let mut err = 0u8;
-    let stage0 = unsafe {
-        musig_stage0(
-            skeys[0].as_ptr(),
-            pkey_ptrs.as_ptr(),
-            pkey_ptrs.len(),
-            0,
-            &mut err as *mut _,
-            ptr::null_mut(),
-            buf.as_mut_ptr(),
-        )
-    };
+    let stage0 = unsafe { musig_stage0(&mut err as *mut _, buf.as_mut_ptr()) };
     assert_eq!(err, 0);
     let mut commitments = [[0u8; 32]];
     rng.fill(&mut commitments[0]);
@@ -212,11 +197,16 @@ fn incorrect_commit_reveal() {
     let stage1 = unsafe {
         musig_stage1(
             stage0,
+            skeys[0].as_ptr(),
+            pkey_ptrs.as_ptr(),
+            pkey_ptrs.len(),
+            0,
             MESSAGE.as_ptr(),
             MESSAGE.len(),
             commitment_ptrs.as_ptr(),
             commitment_ptrs.len(),
             &mut err as *mut _,
+            ptr::null_mut(),
             buf.as_mut_ptr(),
         )
     };
@@ -269,17 +259,7 @@ fn commit_missing_participant() {
     let pkey_ptrs: Vec<_> = pkeys.iter().map(|x| x.as_ptr()).collect();
     let mut buf = [0u8; 32];
     let mut err = 0u8;
-    let stage0 = unsafe {
-        musig_stage0(
-            skeys[0].as_ptr(),
-            pkey_ptrs.as_ptr(),
-            pkey_ptrs.len(),
-            0,
-            &mut err as *mut _,
-            ptr::null_mut(),
-            buf.as_mut_ptr(),
-        )
-    };
+    let stage0 = unsafe { musig_stage0(&mut err as *mut _, buf.as_mut_ptr()) };
     assert_eq!(err, 0);
     let mut commitments = [[0u8; 32]];
     rng.fill(&mut commitments[0]);
@@ -287,11 +267,16 @@ fn commit_missing_participant() {
     let stage1 = unsafe {
         musig_stage1(
             stage0,
+            skeys[0].as_ptr(),
+            pkey_ptrs.as_ptr(),
+            pkey_ptrs.len(),
+            0,
             MESSAGE.as_ptr(),
             MESSAGE.len(),
             commitment_ptrs.as_ptr(),
             commitment_ptrs.len(),
             &mut err as *mut _,
+            ptr::null_mut(),
             buf.as_mut_ptr(),
         )
     };
@@ -341,22 +326,27 @@ fn test_scalar_key() {
     assert!(agg_pkey.iter().any(|&b| b != 0));
     let mut agg_pkey2 = [0u8; 32];
     let mut out = [0u8; 32];
-    let stage0 = unsafe {
-        musig_stage0(
+    let stage0 = unsafe { musig_stage0(&mut err as *mut _, out.as_mut_ptr()) };
+    let commitment_ptrs = [out.as_ptr()];
+    let mut out2 = [0u8; 32];
+    unsafe {
+        musig_free_stage1(musig_stage1(
+            stage0,
             scalar_bytes.as_ptr(),
             ptr::null(),
             0,
             FLAG_SCALAR_KEY,
+            ptr::null(),
+            0,
+            commitment_ptrs.as_ptr(),
+            commitment_ptrs.len(),
             &mut err as *mut _,
             agg_pkey2.as_mut_ptr(),
-            out.as_mut_ptr(),
-        )
-    };
+            out2.as_mut_ptr(),
+        ));
+    }
     assert_eq!(err, 0);
     assert!(!stage0.is_null());
     assert_eq!(agg_pkey2, agg_pkey);
     assert!(out.iter().any(|&b| b != 0));
-    unsafe {
-        musig_free_stage0(stage0);
-    }
 }
