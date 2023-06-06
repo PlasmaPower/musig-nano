@@ -1,8 +1,8 @@
 [package]
-name = "musig-nano"
+name = "musig-banano"
 version = "0.1.0"
 edition = "2018"
-authors = ["Lee Bousfield <ljbousfield@gmail.com>"]
+authors = ["Lee Bousfield <ljbousfield@gmail.com>", "mconstant <bobbaxter@protonmail.com>"]
 publish = false
 
 [lib]

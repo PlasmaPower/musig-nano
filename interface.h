@@ -1,8 +1,8 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#ifndef MUSIG_NANO_INTERFACE_H
-#define MUSIG_NANO_INTERFACE_H
+#ifndef MUSIG_BANANO_INTERFACE_H
+#define MUSIG_BANANO_INTERFACE_H
 
 /** This indicates a problem within this library, e.g. it failed to initialize a secure random number generator. */
 #define MUSIG_INTERNAL_ERROR 1
@@ -41,7 +41,7 @@ stage0 * musig_stage0(uint8_t * error_out, uint8_t * publish_out);
  * \param pubkeys An array of pointers to public keys. Each public key should be 32 bytes long (in compressed edwards y format). Order does not matter, as the list will be internally sorted. It may optionally contain this participant's public key. Since duplicates are internally removed, having two participants in a MuSig session with the same key will cause the session not to work.
  * \param pubkeys_count The amount of pubkeys supplied.
  * \param flags Documented above, flags can change behavior in various ways.
- * \param message The message to sign. For Nano, this is a block hash.
+ * \param message The message to sign. For Banano, this is a block hash.
  * \param message_length The length of the message.
  * \param responses An array of pointers to 32 byte messages published in stage0. This may optionally include our own message and/or duplicates. It may be in any order.
  * \param responses_count The number of responses in the responses array.
@@ -101,7 +101,7 @@ void musig_free_stage2(stage2 * stage2);
 /**
  * Derives a MuSig signature from a session's messages. This is useful if a message passer server is responsible for publishing the signature.
  * \param aggregated_pubkey The aggregated public key for the MuSig session. This can be derived with musig_aggregate_public_keys.
- * \param message The message that is being signed. For Nano, this is a block hash.
+ * \param message The message that is being signed. For Banano, this is a block hash.
  * \param message_length The length of the message.
  * \param stage1_messages An array of pointers to 32 byte messages produced in stage 1.
  * \param stage1_messages_count The number of messages produced in stage 1.
@@ -112,4 +112,4 @@ void musig_free_stage2(stage2 * stage2);
  */
 void musig_observe(uint8_t const * aggregated_pubkey, uint8_t const * message, size_t message_length, uint8_t const * const * stage1_messages, size_t stage1_messages_count, uint8_t const * const * stage2_messages, size_t stage2_messages_count, uint8_t * error_out, uint8_t * signature_out);
 
-#endif // MUSIG_NANO_INTERFACE_H
+#endif // MUSIG_BANANO_INTERFACE_H

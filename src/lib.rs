@@ -66,8 +66,8 @@ macro_rules! catch_panic {
             Ok(x) => x,
             Err(e) => {
                 match e.downcast_ref::<&'static str>() {
-                    Some(s) => eprintln!("INTERNAL MUSIG-NANO ERROR: {}", s),
-                    None => eprintln!("UNKNOWN INTERNAL MUSIG-NANO ERROR!"),
+                    Some(s) => eprintln!("INTERNAL MUSIG-BANANO ERROR: {}", s),
+                    None => eprintln!("UNKNOWN INTERNAL MUSIG-BANANO ERROR!"),
                 }
                 *$err_out = INTERNAL_ERROR;
                 $($err_ret)*
